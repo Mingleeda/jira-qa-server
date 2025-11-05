@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>QA 대시보드</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #0f172a; }
+    .ac-item-row:hover .ac-delete { opacity: 1; }
+  .status-badge{border:1px solid #334155;border-radius:9999px;padding:0 6px;font-size:10px;color:#cbd5e1;background:#0b1220}
+.status-done{color:#16a34a;border-color:#14532d;background:#052e16}
+.status-inprogress{color:#38bdf8;border-color:#164e63;background:#082f49}
+.status-todo{color:#eab308;border-color:#854d0e;background:#422006}
+</style>
+</head>
+<body class="min-h-screen flex text-slate-100">
+  <!-- 왼쪽 -->
+  <aside class="w-80 border-r border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-3">
+    <h1 class="text-xl font-semibold tracking-tight">Jira Issues</h1>
+    <p class="text-[11px] text-slate-400" id="sprintName">Active Sprint: -</p>
+    <div class="space-y-2">
+  <input id="search" class="w-full rounded bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm" placeholder="검색 (키/제목/담당/보고/레이블)" />
+  <div class="flex items-center gap-2">
+    <select id="sortBy" class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs">
+      <option value="none">정렬 없음</option>
+      <option value="status">상태</option>
+      <option value="due">Due Date</option>
+      <option value="assignee">Assignee</option>
+    </select>
+    <select id="labelFilter" class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs">
+      <option value="">모든 레이블</option>
+    </select>
+  </div>
+  <div id="labelChips" class="flex flex-wrap gap-1"></div>
+</div>
+    <ul id="issueList" class="flex-1 overflow-y-auto space-y-2 text-sm">
+      <li class="text-slate-400 text-xs">불러오는 중...</li>
+    </ul>
+    <pre id="debug" class="text-[10px] text-red-200/80 whitespace-pre-wrap"></pre>
+  </aside>
+
+  <!-- 오른쪽 -->
+  <main class="flex-1 p-6 space-y-6">
+    <div>
+      <p class="text-xs text-slate-400 mb-1">선택된 이슈</p>
+      <h2 id="selectedKey" class="text-sm font-semibold">-</h2>
+      <p id="selectedTitle" class="text-2xl font-semibold">이슈를 선택해 주세요</p>
+    </div>
+
+    <!-- 상세 정보 -->
+    <section class="space-y-2">
+      <h3 class="text-sm font-semibold">상세</h3>
+      <div id="issueMeta" class="text-xs text-slate-300 space-y-1">
+        <div class="flex flex-wrap gap-1 items-center"><span class="text-slate-400">Labels:</span> <div id="metaLabels" class="flex flex-wrap gap-1"></div></div>
+        <p><span class="text-slate-400">Assignee:</span> <span id="metaAssignee">-</span> · <span class="text-slate-400">Reporter:</span> <span id="metaReporter">-</span> · <span class="text-slate-400">Due:</span> <span id="metaDue">-</span></p>
+      </div>
+      <div class="space-y-1">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <button id="toggleSubtasks" class="text-xs text-slate-400 hover:text-slate-200">▶</button>
+            <p class="text-xs text-slate-400">Sub-tasks</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="w-40 h-1.5 bg-slate-800 rounded overflow-hidden"><div id="subtaskProgressBar" class="h-full bg-cyan-500" style="width:0%"></div></div>
+            <span id="subtaskProgressText" class="text-[11px] text-slate-400">0%</span>
+            <span id="subtaskCount" class="text-[11px] text-slate-400">(0/0)</span>
+          </div>
+        </div>
+        <ul id="subtaskList" class="space-y-1 text-xs hidden"></ul>
+      </div>
+    </section>
+    <!-- AC -->
+    <section class="space-y-3 bg-slate-900/50 border border-slate-800 rounded p-4">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="text-sm font-semibold">AC</h3>
+      </div>
+      <div class="flex gap-2">
+        <textarea id="acInput" rows="2" placeholder="AC 내용을 입력하세요 (엔터로 추가)" class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm resize-none"></textarea>
+        <button id="addAcBtn" class="bg-cyan-500 text-slate-950 text-sm px-3 py-2 rounded">추가</button>
+      </div>
+      <div id="acList" class="space-y-2"></div>
+    </section>
+    <!-- DoD -->
+    <section class="space-y-3 bg-slate-900/50 border border-slate-800 rounded p-4">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="text-sm font-semibold">DoD</h3>
+      </div>
+      <div class="flex gap-2">
+        <textarea id="dodInput" rows="2" placeholder="DoD 항목을 입력하세요 (엔터로 추가)" class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm resize-none"></textarea>
+        <button id="addDodBtn" class="bg-cyan-500 text-slate-950 text-sm px-3 py-2 rounded">추가</button>
+      </div>
+      <div id="dodList" class="space-y-2"></div>
+    </section>
+  </main>
+
+  <script>
+    const API_BASE = "http://localhost:3000";
+
+    const issueListEl = document.getElementById("issueList");
+    const issueKeyEl = document.getElementById("selectedKey");
+    const issueTitleEl = document.getElementById("selectedTitle");
+    const searchInput = document.getElementById("search");
+    const debugEl = document.getElementById("debug");
+    const sprintNameEl = document.getElementById("sprintName");
+    const acListEl = document.getElementById("acList");
+    const acInputEl = document.getElementById("acInput"); if (acInputEl) { acInputEl.addEventListener("input", ()=>autoGrow(acInputEl)); setTimeout(()=>autoGrow(acInputEl),0); }
+    const addAcBtn = document.getElementById("addAcBtn");
+    const dodListEl = document.getElementById("dodList");
+    const dodInputEl = document.getElementById("dodInput"); if (dodInputEl) { dodInputEl.addEventListener("input", ()=>autoGrow(dodInputEl)); setTimeout(()=>autoGrow(dodInputEl),0); }
+    const addDodBtn = document.getElementById("addDodBtn");
+
+    let allIssues = [];
+    let currentIssueKey = null;
+    let currentState = { ac: [], dod: [] }; // 서버에서 받은 상태를 여기에 보관
+
+    // ---- 서버에서 QA 상태 가져오기 / 저장하기 ----
+    async function fetchIssueState(issueKey) {
+      const res = await fetch(`${API_BASE}/api/qa-state/${issueKey}`);
+      return await res.json(); // {ac:[], dod:[]}
+    }
+
+    function autoGrow(el){ el.style.height = "auto"; el.style.height = (el.scrollHeight)+"px"; }
+
+    async function saveIssueState(issueKey, state) {
+      await fetch(`${API_BASE}/api/qa-state/${issueKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(state),
+      });
+    }
+
+    // ---- Jira 이슈 목록 불러오기 ----
+    async function loadIssues() {
+      try {
+        const res = await fetch(`${API_BASE}/api/jira-sprint-issues`);
+        const data = await res.json();
+        if (!Array.isArray(data)) {
+          sprintNameEl.textContent = `Active Sprint: ${data.sprint?.name || "-"}`;
+        }
+        allIssues = Array.isArray(data) ? data : (data.issues || []);
+        buildLabelControls(allIssues);
+        renderIssues(allIssues);
+      } catch (e) {
+        issueListEl.innerHTML = "<li class='text-red-400 text-xs'>불러오기 실패</li>";
+        debugEl.textContent = e.message;
+      }
+    }
+
+    function safeLower(s) { return (s || "").toString().toLowerCase(); }
+
+    function statusClass(name){
+      const n=(name||"").toLowerCase();
+      if(n.includes("done")) return "status-badge status-done";
+      if(n.includes("progress")||n.includes("in progress")) return "status-badge status-inprogress";
+      if(n.includes("todo")||n.includes("to do")||n.includes("backlog")) return "status-badge status-todo";
+      return "status-badge";
+    }
+
+    function debounce(fn, wait){ let t; return function(){ clearTimeout(t); const args=arguments; t=setTimeout(()=>fn.apply(this,args), wait); }; }
+
+    function buildLabelControls(list){
+      const set = new Set();
+      (list||[]).forEach(it => (it.fields?.labels||[]).forEach(lb=>set.add(lb)) );
+      const opts = document.getElementById("labelFilter");
+      const chips = document.getElementById("labelChips");
+      if (opts){
+        const cur = opts.value;
+        opts.innerHTML = '<option value="">모든 레이블</option>' + Array.from(set).sort().map(lb=>`<option value="${lb}">${lb}</option>`).join('');
+        if (cur && Array.from(set).includes(cur)) opts.value = cur;
+        opts.onchange = ()=> buildLabelControls(allIssues);
+        renderIssues(allIssues);
+      }
+      if (chips){
+        chips.innerHTML = Array.from(set).sort().map(lb=>`<button data-lb="${lb}" class="px-2 py-0.5 text-[10px] rounded bg-slate-800 border border-slate-700 hover:border-slate-500">${lb}</button>`).join('');
+        chips.querySelectorAll('button').forEach(btn=>{ btn.onclick=()=>{ const sel=document.getElementById('labelFilter'); if (sel){ sel.value = btn.dataset.lb; } buildLabelControls(allIssues);
+        renderIssues(allIssues); }; });
+      }
+    }
+
+    function groupByLabels(list) {
+      const groups = {};
+      list.forEach(issue => {
+        const labels = issue?.fields?.labels && issue.fields.labels.length > 0
+          ? issue.fields.labels
+          : ["No Label"];
+        labels.forEach(lb => {
+          if (!groups[lb]) groups[lb] = [];
+          groups[lb].push(issue);
+        });
+      });
+      return groups;
+    }
+
+    function renderIssues(list) {
+      issueListEl.innerHTML = "";
+
+      const sortSel=document.getElementById("sortBy");
+      const labelSel=document.getElementById("labelFilter");
+      const sortBy=sortSel?sortSel.value:"none";
+      const selectedLabel=labelSel?labelSel.value:"";
+
+      let work=[...list];
+      if (selectedLabel) {
+        work = work.filter(it => (it.fields?.labels||[]).includes(selectedLabel));
+      }
+      if (sortBy!=="none") {
+        work.sort((a,b)=>{
+          if (sortBy==="due") return (a.fields?.duedate||"").localeCompare(b.fields?.duedate||"");
+          if (sortBy==="assignee") return (a.fields?.assignee?.displayName||"").localeCompare(b.fields?.assignee?.displayName||"");
+          if (sortBy==="status") return (a.status||"").localeCompare(b.status||"");
+          return 0;
+        });
+      }
+
+      const groups = groupByLabels(work);
+      const labels = Object.keys(groups).sort((a,b) => a.localeCompare(b));
+
+      if (labels.length === 0) {
+        issueListEl.innerHTML = "<li class='text-slate-400 text-xs'>이슈가 없습니다</li>";
+        return;
+      }
+
+      let firstIssueSelected = false;
+
+      labels.forEach(label => {
+        const header = document.createElement("li");
+        header.className = "text-[10px] uppercase tracking-wide text-slate-400 mt-3 first:mt-0";
+        header.textContent = `${label} (${groups[label].length})`;
+        issueListEl.appendChild(header);
+
+        groups[label].forEach((issue) => {
+          const li = document.createElement("li");
+          li.className = "p-2 bg-slate-800/40 rounded cursor-pointer hover:bg-slate-700/60 space-y-0.5";
+          const key = issue.key || "(no key)";
+          const summary = issue.fields?.summary || "(no summary)";
+          const assignee = issue.fields?.assignee?.displayName || "-";
+          const reporter = issue.fields?.reporter?.displayName || "-";
+          const due = issue.fields?.duedate || "-";
+          li.innerHTML = `
+            <p class="text-xs text-cyan-200">${key}</p>
+            <p class="text-sm line-clamp-2">${summary}</p>
+            <span class="${statusClass(issue.status)}">${issue.status || ""}</span>
+            <p class="text-[11px] text-slate-400">Assignee: ${assignee} · Reporter: ${reporter} · Due: ${due}</p>
+          `;
+          li.addEventListener("click", () => selectIssue(key, summary));
+          issueListEl.appendChild(li);
+
+          if (!firstIssueSelected) {
+            firstIssueSelected = true;
+            selectIssue(key, summary);
+          }
+        });
+      });
+    }
+
+    // ---- 이슈 선택 시 ----
+    async function selectIssue(key, summary) {
+      currentIssueKey = key;
+      issueKeyEl.textContent = key;
+      issueTitleEl.textContent = summary;
+      try { localStorage.setItem("lastIssueKey", key); } catch (e) {}
+
+      currentState = await fetchIssueState(key); // 서버에서 상태 가져오기
+      renderAC(currentState.ac);
+      renderDoD(currentState.dod);
+      
+      
+      var issue = allIssues.find(function(it){ return it.key === key; }) || null;
+      if (issue) renderIssueDetails(issue);
+    }
+
+    // ---- 상세 렌더링 ----
+    function renderIssueDetails(issue) {
+      const assigneeEl = document.getElementById("metaAssignee");
+      const reporterEl = document.getElementById("metaReporter");
+      const dueEl = document.getElementById("metaDue");
+      const labelsWrap = document.getElementById("metaLabels");
+      const subtaskList = document.getElementById("subtaskList");
+
+      assigneeEl.textContent = (issue.fields && issue.fields.assignee && issue.fields.assignee.displayName) ? issue.fields.assignee.displayName : "-";
+      reporterEl.textContent = (issue.fields && issue.fields.reporter && issue.fields.reporter.displayName) ? issue.fields.reporter.displayName : "-";
+      dueEl.textContent = (issue.fields && issue.fields.duedate) ? issue.fields.duedate : "-";
+
+      labelsWrap.innerHTML = "";
+      const labels = (issue.fields && Array.isArray(issue.fields.labels)) ? issue.fields.labels : [];
+      if (labels.length === 0) {
+        const span = document.createElement("span");
+        span.className = "px-1 rounded bg-slate-800 text-slate-400";
+        span.textContent = "No Label";
+        labelsWrap.appendChild(span);
+      } else {
+        labels.forEach(function(lb){
+          const span = document.createElement("span");
+          span.className = "px-1 rounded bg-slate-800 text-slate-200 border border-slate-700";
+          span.textContent = lb;
+          labelsWrap.appendChild(span);
+        });
+      }
+
+      subtaskList.innerHTML = "";
+      const subtasks = (issue.fields && Array.isArray(issue.fields.subtasks)) ? issue.fields.subtasks : [];
+      const progTxt = document.getElementById("subtaskProgressText");
+      const progBar = document.getElementById("subtaskProgressBar");
+      const progCnt = document.getElementById("subtaskCount");
+      const doneCount = subtasks.filter(function(st){ const n=(st.status||"").toLowerCase(); return n.includes("done") || n.includes("완료"); }).length;
+      const total = subtasks.length;
+      const pct = total? Math.round(doneCount*100/total) : 0;
+      if (progTxt) progTxt.textContent = pct+"%";
+      if (progBar) progBar.style.width = pct+"%";
+      if (progCnt) progCnt.textContent = `(${doneCount}/${total})`;
+      if (subtasks.length === 0) {
+        const li = document.createElement("li");
+        li.className = "text-slate-400";
+        li.textContent = "서브태스크 없음";
+        subtaskList.appendChild(li);
+      } else {
+        subtasks.forEach(function(st){
+          const li = document.createElement("li");
+          li.className = "flex justify-between gap-2 bg-slate-800/40 rounded px-2 py-1";
+          const left = document.createElement("span");
+          left.textContent = (st.key || "") + " - " + (st.summary || "");
+          const right = document.createElement("span");
+          right.className = "text-slate-400";
+          right.textContent = st.status || "";
+          li.appendChild(left);
+          li.appendChild(right);
+          subtaskList.appendChild(li);
+        });
+      }
+    }
+
+    function updateAcProgress(){
+      const arr = currentState.ac || [];
+      const done = arr.filter(it=>it && it.checked).length;
+      const total = arr.length;
+      const pct = total? Math.round(done*100/total) : 0;
+      const txt = document.getElementById("acProgressText");
+      const bar = document.getElementById("acProgressBar");
+      const cnt = document.getElementById("acCount");
+      if (txt) txt.textContent = pct+"%";
+      if (bar) bar.style.width = pct+"%";
+      if (cnt) cnt.textContent = `(${done}/${total})`;
+    }
+
+    function updateDodProgress(){
+      const arr = currentState.dod || [];
+      const done = arr.filter(it=>it && it.checked).length;
+      const total = arr.length;
+      const pct = total? Math.round(done*100/total) : 0;
+      const txt = document.getElementById("dodProgressText");
+      const bar = document.getElementById("dodProgressBar");
+      const cnt = document.getElementById("dodCount");
+      if (txt) txt.textContent = pct+"%";
+      if (bar) bar.style.width = pct+"%";
+      if (cnt) cnt.textContent = `(${done}/${total})`;
+    }
+
+    // ---- AC 렌더링 ----
+    function renderAC(acArray) {
+      acListEl.innerHTML = "";
+      if (!acArray || acArray.length === 0) {
+        acListEl.innerHTML = `<p class="text-xs text-slate-400">AC가 없습니다. 위에서 추가하세요.</p>`;
+        return;
+      }
+
+      acArray.forEach((acItem, idx) => {
+        const row = document.createElement("div");
+        row.className = "flex items-start gap-2 ac-item-row";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "mt-1";
+        checkbox.checked = !!acItem.checked;
+        checkbox.addEventListener("change", async () => {
+          currentState.ac[idx].checked = checkbox.checked;
+          await saveIssueState(currentIssueKey, currentState); 
+        });
+
+        const span = document.createElement("span");
+        span.contentEditable = true;
+        span.className = "text-sm outline-none";
+        span.textContent = acItem.text || "";
+        span.addEventListener("blur", async () => {
+          currentState.ac[idx].text = span.textContent;
+          await saveIssueState(currentIssueKey, currentState); 
+        });
+
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "✕";
+        delBtn.className = "ac-delete text-xs text-slate-400 hover:text-red-300 opacity-0 transition-opacity";
+        delBtn.addEventListener("click", async () => {
+          currentState.ac.splice(idx, 1);
+          await saveIssueState(currentIssueKey, currentState); 
+          renderAC(currentState.ac);
+        });
+
+        row.appendChild(checkbox);
+        row.appendChild(span);
+        row.appendChild(delBtn);
+        acListEl.appendChild(row);
+      });
+    }
+
+    // ---- AC 추가 ----
+    addAcBtn.addEventListener("click", async () => {
+      if (!currentIssueKey) return;
+      const text = acInputEl.value.trim();
+      if (!text) return;
+      currentState.ac = currentState.ac || [];
+      currentState.ac.push({ text, checked: false });
+      await saveIssueState(currentIssueKey, currentState); 
+      acInputEl.value = "";
+      renderAC(currentState.ac);
+    });
+    acInputEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addAcBtn.click(); } });
+    acInputEl.addEventListener("keyup", (e) => {
+      if (e.key === "Enter") addAcBtn.click();
+    });
+
+    // ---- DoD 렌더링 ----
+    function renderDoD(dodArray) {
+      dodListEl.innerHTML = "";
+      if (!dodArray || dodArray.length === 0) {
+        dodListEl.innerHTML = `<p class=\"text-xs text-slate-400\">DoD가 없습니다. 위에서 추가하세요.</p>`;
+        return;
+      }
+
+      dodArray.forEach((dodItem, idx) => {
+        const row = document.createElement("div");
+        row.className = "flex items-start gap-2 ac-item-row";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "mt-1";
+        checkbox.checked = !!dodItem.checked;
+        checkbox.addEventListener("change", async () => {
+          currentState.dod[idx].checked = checkbox.checked;
+          await saveIssueState(currentIssueKey, currentState); 
+        });
+
+        const span = document.createElement("span");
+        span.contentEditable = true;
+        span.className = "text-sm outline-none";
+        span.textContent = dodItem.text || "";
+        span.addEventListener("blur", async () => {
+          currentState.dod[idx].text = span.textContent;
+          await saveIssueState(currentIssueKey, currentState); 
+        });
+
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "✕";
+        delBtn.className = "ac-delete text-xs text-slate-400 hover:text-red-300 opacity-0 transition-opacity";
+        delBtn.addEventListener("click", async () => {
+          currentState.dod.splice(idx, 1);
+          await saveIssueState(currentIssueKey, currentState); 
+          renderDoD(currentState.dod);
+        });
+
+        row.appendChild(checkbox);
+        row.appendChild(span);
+        row.appendChild(delBtn);
+        dodListEl.appendChild(row);
+      });
+    }
+
+    // ---- DoD 추가 ----
+    addDodBtn.addEventListener("click", async () => {
+      if (!currentIssueKey) return;
+      const text = (dodInputEl?.value || "").trim();
+      if (!text) return;
+      currentState.dod = currentState.dod || [];
+      currentState.dod.push({ text, checked: false });
+      await saveIssueState(currentIssueKey, currentState); 
+      if (dodInputEl) dodInputEl.value = "";
+      renderDoD(currentState.dod);
+      var issue = allIssues.find(function(it){ return it.key === key; }) || null;
+      if (issue) renderIssueDetails(issue);
+    });
+    if (dodInputEl) {
+      dodInputEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addDodBtn.click(); } });
+      dodInputEl.addEventListener("keyup", (e) => {
+        if (e.key === "Enter") addDodBtn.click();
+      });
+    }
+
+    // ---- 검색 ----
+    searchInput.addEventListener("input", debounce((e) => {
+      const q = safeLower(e.target.value);
+      const filtered = allIssues.filter(issue => {
+        const key = safeLower(issue.key);
+        const summary = safeLower(issue.fields?.summary);
+        const assignee = safeLower(issue.fields?.assignee?.displayName);
+        const reporter = safeLower(issue.fields?.reporter?.displayName);
+        const labels = (issue.fields?.labels || []).map(safeLower).join(" ");
+        return (
+          key.includes(q) || summary.includes(q) || assignee.includes(q) || reporter.includes(q) || labels.includes(q)
+        );
+      });
+      renderIssues(filtered);
+    }, 200));
+
+    // Sub-tasks 접기/펼치기
+    (function(){
+      const btn = document.getElementById("toggleSubtasks");
+      const list = document.getElementById("subtaskList");
+      if (btn && list) {
+        btn.onclick = function(){
+          list.classList.toggle("hidden");
+          btn.textContent = list.classList.contains("hidden") ? "▶" : "▼";
+        };
+      }
+    })();
+
+    // 마지막 선택 복원
+    const lastKey = localStorage.getItem("lastIssueKey");
+    if (lastKey) {
+      const found = allIssues.find(it=>it.key===lastKey);
+      if (found) selectIssue(found.key, found.fields?.summary||found.key);
+    }
+
+    loadIssues();
+  </script>
+</body>
+</html>
