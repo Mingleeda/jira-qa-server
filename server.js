@@ -29,13 +29,16 @@ const jiraHeaders = {
   Accept: "application/json",
 };
 
-// ----- Postgres 연결 -----
 const pool = new Pool({
-  host: process.env.PG_HOST,
-  port: process.env.PG_PORT,
-  user: process.env.PG_USER,
-  password: process.env.PG_PASSWORD,
-  database: process.env.PG_DATABASE,
+  connectionString: process.env.DATABASE_URL || 
+    `postgresql://${process.env.PG_USER}:${process.env.PG_PASSWORD}@${process.env.PG_HOST}:${process.env.PG_PORT || 5432}/${process.env.PG_DATABASE}`,
+  ssl: process.env.DATABASE_URL ? {
+    rejectUnauthorized: false,
+    require: true
+  } : false,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
 });
 
 // 잘 붙었는지 테스트 (선택)
