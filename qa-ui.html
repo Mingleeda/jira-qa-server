@@ -403,19 +403,26 @@
     }
 
     // ---- AC 추가 ----
+    let isAddingAC = false;
     addAcBtn.addEventListener("click", async () => {
-      if (!currentIssueKey) return;
+      if (!currentIssueKey || isAddingAC) return;
       const text = acInputEl.value.trim();
       if (!text) return;
+      isAddingAC = true;
       currentState.ac = currentState.ac || [];
       currentState.ac.push({ text, checked: false });
-      await saveIssueState(currentIssueKey, currentState); 
+      await saveIssueState(currentIssueKey, currentState);
       acInputEl.value = "";
+      // 서버에서 최신 상태 다시 불러오기
+      currentState = await fetchIssueState(currentIssueKey);
       renderAC(currentState.ac);
+      isAddingAC = false;
     });
-    acInputEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addAcBtn.click(); } });
-    acInputEl.addEventListener("keyup", (e) => {
-      if (e.key === "Enter") addAcBtn.click();
+    acInputEl.addEventListener("keydown", (e) => { 
+      if (e.key === "Enter" && !e.shiftKey) { 
+        e.preventDefault(); 
+        addAcBtn.click(); 
+      } 
     });
 
     // ---- DoD 렌더링 ----
@@ -465,22 +472,27 @@
     }
 
     // ---- DoD 추가 ----
+    let isAddingDoD = false;
     addDodBtn.addEventListener("click", async () => {
-      if (!currentIssueKey) return;
+      if (!currentIssueKey || isAddingDoD) return;
       const text = (dodInputEl?.value || "").trim();
       if (!text) return;
+      isAddingDoD = true;
       currentState.dod = currentState.dod || [];
       currentState.dod.push({ text, checked: false });
-      await saveIssueState(currentIssueKey, currentState); 
+      await saveIssueState(currentIssueKey, currentState);
       if (dodInputEl) dodInputEl.value = "";
+      // 서버에서 최신 상태 다시 불러오기
+      currentState = await fetchIssueState(currentIssueKey);
       renderDoD(currentState.dod);
-      var issue = allIssues.find(function(it){ return it.key === key; }) || null;
-      if (issue) renderIssueDetails(issue);
+      isAddingDoD = false;
     });
     if (dodInputEl) {
-      dodInputEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addDodBtn.click(); } });
-      dodInputEl.addEventListener("keyup", (e) => {
-        if (e.key === "Enter") addDodBtn.click();
+      dodInputEl.addEventListener("keydown", (e) => { 
+        if (e.key === "Enter" && !e.shiftKey) { 
+          e.preventDefault(); 
+          addDodBtn.click(); 
+        } 
       });
     }
 

@@ -54,6 +54,20 @@ pool
     console.error("❌ PostgreSQL connection error:", err.message);
   });
 
+// DB 테이블 자동 생성
+pool.query(`
+  CREATE TABLE IF NOT EXISTS qa_states (
+    issue_key TEXT PRIMARY KEY,
+    ac JSONB DEFAULT '[]'::jsonb,
+    dod JSONB DEFAULT '[]'::jsonb,
+    updated_at TIMESTAMP DEFAULT NOW()
+  )
+`).then(() => {
+  console.log("✅ QA states table ready");
+}).catch(err => {
+  console.error("❌ Failed to create table:", err.message);
+});
+
 // ----- 라우트 -----
 
 // 1) Jira 스프린트 이슈 가져오기
