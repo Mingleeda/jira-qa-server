@@ -229,6 +229,11 @@ if (!JIRA_URL || !JIRA_EMAIL || !JIRA_TOKEN || !BOARD_ID) {
   console.error("Required: JIRA_URL, JIRA_EMAIL, JIRA_TOKEN, BOARD_ID");
 }
 
+// 루트 경로 - qa-ui.html 서빙
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "qa-ui.html"));
+});
+
 app.listen(PORT, () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);
 });
