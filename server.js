@@ -66,6 +66,11 @@ app.get("/api/jira-sprint-issues", async (req, res) => {
         `${JIRA_URL}/rest/agile/1.0/board/${BOARD_ID}/sprint?state=active`,
         { headers: jiraHeaders }
       );
+      if (!sprintRes.ok) {
+        const errorText = await sprintRes.text();
+        console.error("Jira Sprint API Error:", sprintRes.status, errorText);
+        throw new Error(`Jira API error: ${sprintRes.status} - ${errorText}`);
+      }
       const sprintData = await sprintRes.json();
       const activeSprint = sprintData.values?.[0];
       if (!activeSprint) {
@@ -78,12 +83,22 @@ app.get("/api/jira-sprint-issues", async (req, res) => {
       `${JIRA_URL}/rest/agile/1.0/sprint/${sprintId}`,
       { headers: jiraHeaders }
     );
+    if (!sprintDetailRes.ok) {
+      const errorText = await sprintDetailRes.text();
+      console.error("Jira Sprint Detail API Error:", sprintDetailRes.status, errorText);
+      throw new Error(`Jira API error: ${sprintDetailRes.status}`);
+    }
     const sprintDetail = await sprintDetailRes.json();
 
     const issuesRes = await fetch(
       `${JIRA_URL}/rest/agile/1.0/sprint/${sprintId}/issue?maxResults=200&fields=summary,assignee,reporter,duedate,labels,status,subtasks`,
       { headers: jiraHeaders }
     );
+    if (!issuesRes.ok) {
+      const errorText = await issuesRes.text();
+      console.error("Jira Issues API Error:", issuesRes.status, errorText);
+      throw new Error(`Jira API error: ${issuesRes.status} - ${errorText}`);
+    }
     const issuesData = await issuesRes.json();
 
     const baseIssues = (issuesData.issues || []).map((issue) => ({
@@ -193,6 +208,12 @@ app.post("/api/qa-state/:issueKey", async (req, res) => {
   }
 });
 
+
+// 환경변수 확인
+if (!JIRA_URL || !JIRA_EMAIL || !JIRA_TOKEN || !BOARD_ID) {
+  console.error("❌ Missing Jira environment variables!");
+  console.error("Required: JIRA_URL, JIRA_EMAIL, JIRA_TOKEN, BOARD_ID");
+}
 
 app.listen(PORT, () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);
