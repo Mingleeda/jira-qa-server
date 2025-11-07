@@ -171,6 +171,7 @@ pool.query(`
 
 // 1) Jira 스프린트 이슈 가져오기
 app.get("/api/jira-sprint-issues", async (req, res) => {
+  console.log("▶️ /api/jira-sprint-issues called", { boardId: BOARD_ID, jiraUrl: JIRA_URL });
   try {
     let { sprintId } = req.query;
 
@@ -256,8 +257,9 @@ app.get("/api/jira-sprint-issues", async (req, res) => {
       sprint: { id: sprintId, name: (sprintDetail && sprintDetail.name) ? sprintDetail.name : null },
       issues: enriched,
     });
+    console.log(`✅ Jira issues fetched: ${enriched.length} items (sprint ${sprintId})`);
   } catch (err) {
-    console.error(err);
+    console.error("❌ Jira fetch pipeline error:", err);
     res.status(500).json({ error: "Failed to fetch Jira issues", details: err.message });
   }
 });
