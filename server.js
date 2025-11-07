@@ -306,7 +306,12 @@ app.post("/api/qa-state/:issueKey", async (req, res) => {
       [issueKey, acJson, dodJson]
     );
 
+    console.log("💾 QA state upsert", { issueKey, acCount: (ac || []).length, dodCount: (dod || []).length });
+
     const commentResult = await postJiraComment(issueKey, ac || [], dod || []);
+    if (!commentResult?.success) {
+      console.warn("⚠️ Jira comment not posted", commentResult);
+    }
 
     res.json({ ok: true, comment: commentResult });
   } catch (err) {
