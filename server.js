@@ -291,7 +291,6 @@ app.post("/api/qa-state/:issueKey", async (req, res) => {
   const { issueKey } = req.params;
   const { ac, dod } = req.body;
 
-  // 안전하게 비어 있는 배열로 보정
   const acJson = JSON.stringify(ac || []);
   const dodJson = JSON.stringify(dod || []);
 
@@ -305,20 +304,39 @@ app.post("/api/qa-state/:issueKey", async (req, res) => {
       `,
       [issueKey, acJson, dodJson]
     );
-
     console.log("💾 QA state upsert", { issueKey, acCount: (ac || []).length, dodCount: (dod || []).length });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("❌ Failed to save qa state:", err);
+    res.status(500).json({ error: "Failed to save qa state", details: err.message });
+  }
+});
 
-    const commentResult = await postJiraComment(issueKey, ac || [], dod || []);
+// 4) Jira Import (댓글만 작성)
+app.post("/api/jira-import/:issueKey", async (req, res) => {
+  const { issueKey } = req.params;
+  try {
+    const result = await pool.query("SELECT ac, dod FROM qa_states WHERE issue_key = $1", [issueKey]);
+    const state = result.rows[0] || { ac: [], dod: [] };
+    const acItems = Array.isArray(state.ac) ? state.ac : [];
+    const dodItems = Array.isArray(state.dod) ? state.dod : [];
+
+    const commentResult = await postJiraComment(issueKey, acItems, dodItems);
+
     if (!commentResult?.success) {
-      console.warn("⚠️ Jira comment not posted", commentResult);
+      console.warn("⚠️ Jira comment not posted", { issueKey, ...commentResult });
+    } else {
+      console.log(`📝 Jira comment posted for ${issueKey}`);
     }
 
     res.json({ ok: true, comment: commentResult });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to save qa state" });
+    console.error("❌ Jira import error:", err);
+    res.status(500).json({ error: "Failed to import to Jira", details: err.message });
   }
 });
+
+
 
 
 // 환경변수 확인
