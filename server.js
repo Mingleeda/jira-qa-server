@@ -271,16 +271,17 @@ app.get("/api/qa-state/:issueKey", async (req, res) => {
   const { issueKey } = req.params;
   try {
     const result = await pool.query(
-      "SELECT ac, dod FROM qa_states WHERE issue_key = $1",
+      "SELECT ac, dod, updated_at FROM qa_states WHERE issue_key = $1",
       [issueKey]
     );
     if (result.rows.length === 0) {
-      return res.json({ ac: [], dod: [] });
+      return res.json({ ac: [], dod: [], lastSavedAt: null });
     }
-    res.json(result.rows[0]);
+    const row = result.rows[0];
+    res.json({ ac: row.ac || [], dod: row.dod || [], lastSavedAt: row.updated_at || null });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to load qa state" });
+    console.error("❌ Failed to load qa state:", err);
+    res.status(500).json({ error: "Failed to load qa state", details: err.message });
   }
 });
 
@@ -293,17 +294,19 @@ app.post("/api/qa-state/:issueKey", async (req, res) => {
   const dodJson = JSON.stringify(dod || []);
 
   try {
-    await pool.query(
+    const upsertResult = await pool.query(
       `
       INSERT INTO qa_states (issue_key, ac, dod)
       VALUES ($1, $2::jsonb, $3::jsonb)
       ON CONFLICT (issue_key)
       DO UPDATE SET ac = EXCLUDED.ac, dod = EXCLUDED.dod, updated_at = NOW()
+      RETURNING updated_at
       `,
       [issueKey, acJson, dodJson]
     );
-    console.log("💾 QA state upsert", { issueKey, acCount: (ac || []).length, dodCount: (dod || []).length });
-    res.json({ ok: true });
+    const lastSavedAt = upsertResult.rows[0]?.updated_at || null;
+    console.log("💾 QA state upsert", { issueKey, acCount: (ac || []).length, dodCount: (dod || []).length, lastSavedAt });
+    res.json({ ok: true, lastSavedAt });
   } catch (err) {
     console.error("❌ Failed to save qa state:", err);
     res.status(500).json({ error: "Failed to save qa state", details: err.message });

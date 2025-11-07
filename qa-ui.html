@@ -54,6 +54,7 @@
     <!-- 상세 정보 -->
     <section class="space-y-2">
       <h3 class="text-sm font-semibold">상세</h3>
+      <div class="text-xs text-slate-400">마지막 저장: <span id="lastSavedAt">-</span></div>
       <div id="issueMeta" class="text-xs text-slate-300 space-y-1">
         <div class="flex flex-wrap gap-1 items-center"><span class="text-slate-400">Labels:</span> <div id="metaLabels" class="flex flex-wrap gap-1"></div></div>
         <p><span class="text-slate-400">Assignee:</span> <span id="metaAssignee">-</span> · <span class="text-slate-400">Reporter:</span> <span id="metaReporter">-</span> · <span class="text-slate-400">Due:</span> <span id="metaDue">-</span></p>
@@ -119,6 +120,21 @@
     let currentState = { ac: [], dod: [] }; // 서버에서 받은 상태를 여기에 보관
     let isCommenting = false;
 
+
+    function formatDateTime(iso) {
+      if (!iso) return "-";
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "-";
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
+    }
+
+    function updateLastSavedDisplay() {
+      const lastSavedEl = document.getElementById("lastSavedAt");
+      if (lastSavedEl) {
+        lastSavedEl.textContent = formatDateTime(currentState.lastSavedAt);
+      }
+    }
+
     function updateImportButtonState() {
       if (!jiraImportBtn) return;
       jiraImportBtn.disabled = !currentIssueKey || isCommenting;
@@ -128,7 +144,9 @@
     async function persistState() {
       if (!currentIssueKey) return;
       try {
-        await saveIssueState(currentIssueKey, currentState);
+        const result = await saveIssueState(currentIssueKey, currentState);
+        currentState.lastSavedAt = result?.lastSavedAt || new Date().toISOString();
+        updateLastSavedDisplay();
         debugEl.textContent = "";
       } catch (err) {
         debugEl.textContent = err.message;
@@ -136,6 +154,7 @@
     }
 
     updateImportButtonState();
+    updateLastSavedDisplay();
 
 
     // ---- 서버에서 QA 상태 가져오기 / 저장하기 ----
@@ -145,6 +164,9 @@
       try {
         const data = JSON.parse(text);
         if (!res.ok) throw new Error(data.error || text);
+        if (typeof data.lastSavedAt === "undefined") {
+          data.lastSavedAt = null;
+        }
         return data;
       } catch (err) {
         throw new Error(`[QA 상태] 응답 파싱 실패: ${err.message}`);
@@ -318,6 +340,7 @@
 
       try {
         currentState = await fetchIssueState(key);
+        updateLastSavedDisplay();
         renderAC(currentState.ac);
         renderDoD(currentState.dod);
         const issue = allIssues.find(function(it){ return it.key === key; }) || null;
@@ -332,6 +355,7 @@
     // ---- 상세 렌더링 ----
     function renderIssueDetails(issue) {
       const assigneeEl = document.getElementById("metaAssignee");
+      updateLastSavedDisplay();
       const reporterEl = document.getElementById("metaReporter");
       const dueEl = document.getElementById("metaDue");
       const labelsWrap = document.getElementById("metaLabels");
@@ -571,12 +595,15 @@
             throw new Error(data?.error || text || "Jira Import 실패");
           }
           const commentResult = data?.comment;
+          updateLastSavedDisplay();
+          const formatted = formatDateTime(currentState.lastSavedAt);
+          const baseMessage = `Import 성공 · ${formatted}`;
           if (commentResult?.success) {
-            debugEl.textContent = "Jira Import 완료 (댓글 등록)";
+            debugEl.textContent = baseMessage;
           } else if (commentResult) {
-            debugEl.textContent = `Jira Import 완료 (댓글 등록 실패: ${commentResult.message || '원인 미상'})`;
+            debugEl.textContent = `${baseMessage} (댓글 등록 실패: ${commentResult.message || '원인 미상'})`;
           } else {
-            debugEl.textContent = "Jira Import 완료";
+            debugEl.textContent = baseMessage;
           }
         } catch (err) {
           debugEl.textContent = err.message;
