@@ -562,14 +562,21 @@
         isSaving = true;
         updateSaveButtonState();
         try {
-          await saveIssueState(currentIssueKey, currentState);
+          const result = await saveIssueState(currentIssueKey, currentState);
           currentState = await fetchIssueState(currentIssueKey);
           renderAC(currentState.ac);
           renderDoD(currentState.dod);
           const issue = allIssues.find(function(it){ return it.key === currentIssueKey; }) || null;
           if (issue) renderIssueDetails(issue);
           resetDirty();
-          debugEl.textContent = "Jira Import 완료";
+          const commentResult = result?.comment;
+          if (commentResult?.success) {
+            debugEl.textContent = "Jira Import 완료 (댓글 등록)";
+          } else if (commentResult) {
+            debugEl.textContent = `Jira Import 완료 (댓글 등록 실패: ${commentResult.message || '원인 미상'})`;
+          } else {
+            debugEl.textContent = "Jira Import 완료";
+          }
         } catch (err) {
           debugEl.textContent = err.message;
         } finally {

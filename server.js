@@ -80,8 +80,9 @@ function buildChecklistBlock(label, items) {
 
 async function postJiraComment(issueKey, acItems, dodItems) {
   if (!JIRA_URL || !JIRA_EMAIL || !JIRA_TOKEN) {
-    console.warn('⚠️ Jira 환경변수가 설정되지 않아 댓글을 작성하지 않습니다.');
-    return;
+    const message = 'Jira 환경변수가 설정되지 않아 댓글을 작성하지 않습니다.';
+    console.warn(`⚠️ ${message}`);
+    return { success: false, message };
   }
   try {
     const body = {
@@ -104,12 +105,15 @@ async function postJiraComment(issueKey, acItems, dodItems) {
     );
     if (!res.ok) {
       const text = await res.text();
+      const message = `댓글 작성 실패: ${res.status} ${text}`;
       console.error('❌ Jira 댓글 작성 실패:', res.status, text);
-    } else {
-      console.log(`✅ Jira 댓글 작성 완료: ${issueKey}`);
+      return { success: false, message };
     }
+    console.log(`✅ Jira 댓글 작성 완료: ${issueKey}`);
+    return { success: true };
   } catch (err) {
     console.error('❌ Jira 댓글 작성 중 오류:', err.message);
+    return { success: false, message: err.message };
   }
 }
 
@@ -302,9 +306,9 @@ app.post("/api/qa-state/:issueKey", async (req, res) => {
       [issueKey, acJson, dodJson]
     );
 
-    postJiraComment(issueKey, ac || [], dod || []);
+    const commentResult = await postJiraComment(issueKey, ac || [], dod || []);
 
-    res.json({ ok: true });
+    res.json({ ok: true, comment: commentResult });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to save qa state" });
