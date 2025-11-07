@@ -42,10 +42,13 @@
 
   <!-- 오른쪽 -->
   <main class="flex-1 p-6 space-y-6">
-    <div>
-      <p class="text-xs text-slate-400 mb-1">선택된 이슈</p>
-      <h2 id="selectedKey" class="text-sm font-semibold">-</h2>
-      <p id="selectedTitle" class="text-2xl font-semibold">이슈를 선택해 주세요</p>
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <p class="text-xs text-slate-400 mb-1">선택된 이슈</p>
+        <h2 id="selectedKey" class="text-sm font-semibold">-</h2>
+        <p id="selectedTitle" class="text-2xl font-semibold">이슈를 선택해 주세요</p>
+      </div>
+      <button id="jiraImportBtn" class="bg-emerald-500/80 text-slate-950 text-sm px-4 py-2 rounded shadow disabled:opacity-50 disabled:cursor-not-allowed" disabled>Jira Import</button>
     </div>
 
     <!-- 상세 정보 -->
@@ -109,10 +112,34 @@
     const dodListEl = document.getElementById("dodList");
     const dodInputEl = document.getElementById("dodInput"); if (dodInputEl) { dodInputEl.addEventListener("input", ()=>autoGrow(dodInputEl)); setTimeout(()=>autoGrow(dodInputEl),0); }
     const addDodBtn = document.getElementById("addDodBtn");
+    const jiraImportBtn = document.getElementById("jiraImportBtn");
 
     let allIssues = [];
     let currentIssueKey = null;
     let currentState = { ac: [], dod: [] }; // 서버에서 받은 상태를 여기에 보관
+    let isDirty = false;
+    let isSaving = false;
+
+    function updateSaveButtonState() {
+      if (!jiraImportBtn) return;
+      const disable = !currentIssueKey || !isDirty || isSaving;
+      jiraImportBtn.disabled = disable;
+      jiraImportBtn.textContent = isSaving ? "저장 중..." : (isDirty ? "Jira Import (변경 있음)" : "Jira Import");
+    }
+
+    function markDirty() {
+      if (!currentIssueKey) return;
+      isDirty = true;
+      updateSaveButtonState();
+    }
+
+    function resetDirty() {
+      isDirty = false;
+      updateSaveButtonState();
+    }
+
+    updateSaveButtonState();
+
 
     // ---- 서버에서 QA 상태 가져오기 / 저장하기 ----
     async function fetchIssueState(issueKey) {
@@ -130,11 +157,24 @@
     function autoGrow(el){ el.style.height = "auto"; el.style.height = (el.scrollHeight)+"px"; }
 
     async function saveIssueState(issueKey, state) {
-      await fetch(`${API_BASE}/api/qa-state/${issueKey}`, {
+      const res = await fetch(`${API_BASE}/api/qa-state/${issueKey}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(state),
       });
+      const text = await res.text();
+      let data = {};
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch (err) {
+          throw new Error(`[저장 응답 파싱 오류] ${err.message}`);
+        }
+      }
+      if (!res.ok || data?.ok !== true) {
+        throw new Error(data?.error || text || "저장 실패");
+      }
+      return data;
     }
 
     // ---- Jira 이슈 목록 불러오기 ----
@@ -286,14 +326,20 @@
       issueTitleEl.textContent = summary;
       try { localStorage.setItem("lastIssueKey", key); } catch (e) {}
 
-      currentState = await fetchIssueState(key); // 서버에서 상태 가져오기
-      renderAC(currentState.ac);
-      renderDoD(currentState.dod);
-      
-      
-      var issue = allIssues.find(function(it){ return it.key === key; }) || null;
-      if (issue) renderIssueDetails(issue);
+      try {
+        currentState = await fetchIssueState(key);
+        renderAC(currentState.ac);
+        renderDoD(currentState.dod);
+        const issue = allIssues.find(function(it){ return it.key === key; }) || null;
+        if (issue) renderIssueDetails(issue);
+        resetDirty();
+        isSaving = false;
+        updateSaveButtonState();
+      } catch (err) {
+        debugEl.textContent = err.message;
+      }
     }
+
 
     // ---- 상세 렌더링 ----
     function renderIssueDetails(issue) {
@@ -397,27 +443,30 @@
         checkbox.type = "checkbox";
         checkbox.className = "mt-1";
         checkbox.checked = !!acItem.checked;
-        checkbox.addEventListener("change", async () => {
+        checkbox.addEventListener("change", () => {
           currentState.ac[idx].checked = checkbox.checked;
-          await saveIssueState(currentIssueKey, currentState); 
+          markDirty();
         });
 
         const span = document.createElement("span");
         span.contentEditable = true;
         span.className = "text-sm outline-none";
         span.textContent = acItem.text || "";
-        span.addEventListener("blur", async () => {
-          currentState.ac[idx].text = span.textContent;
-          await saveIssueState(currentIssueKey, currentState); 
+        span.addEventListener("blur", () => {
+          const value = (span.textContent || "").trim();
+          if ((currentState.ac[idx].text || "").trim() !== value) {
+            currentState.ac[idx].text = value;
+            markDirty();
+          }
         });
 
         const delBtn = document.createElement("button");
         delBtn.textContent = "✕";
         delBtn.className = "ac-delete text-xs text-slate-400 hover:text-red-300 opacity-0 transition-opacity";
-        delBtn.addEventListener("click", async () => {
+        delBtn.addEventListener("click", () => {
           currentState.ac.splice(idx, 1);
-          await saveIssueState(currentIssueKey, currentState); 
           renderAC(currentState.ac);
+          markDirty();
         });
 
         row.appendChild(checkbox);
@@ -427,34 +476,30 @@
       });
     }
 
+
     // ---- AC 추가 ----
-    let isAddingAC = false;
-    addAcBtn.addEventListener("click", async () => {
-      if (!currentIssueKey || isAddingAC) return;
+    addAcBtn.addEventListener("click", () => {
+      if (!currentIssueKey) return;
       const text = acInputEl.value.trim();
       if (!text) return;
-      isAddingAC = true;
       currentState.ac = currentState.ac || [];
       currentState.ac.push({ text, checked: false });
-      await saveIssueState(currentIssueKey, currentState);
       acInputEl.value = "";
-      // 서버에서 최신 상태 다시 불러오기
-      currentState = await fetchIssueState(currentIssueKey);
       renderAC(currentState.ac);
-      isAddingAC = false;
+      markDirty();
     });
-    acInputEl.addEventListener("keydown", (e) => { 
-      if (e.key === "Enter" && !e.shiftKey) { 
-        e.preventDefault(); 
-        addAcBtn.click(); 
-      } 
+    acInputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        addAcBtn.click();
+      }
     });
 
     // ---- DoD 렌더링 ----
     function renderDoD(dodArray) {
       dodListEl.innerHTML = "";
       if (!dodArray || dodArray.length === 0) {
-        dodListEl.innerHTML = `<p class=\"text-xs text-slate-400\">DoD가 없습니다. 위에서 추가하세요.</p>`;
+        dodListEl.innerHTML = `<p class="text-xs text-slate-400">DoD가 없습니다. 위에서 추가하세요.</p>`;
         return;
       }
 
@@ -466,27 +511,30 @@
         checkbox.type = "checkbox";
         checkbox.className = "mt-1";
         checkbox.checked = !!dodItem.checked;
-        checkbox.addEventListener("change", async () => {
+        checkbox.addEventListener("change", () => {
           currentState.dod[idx].checked = checkbox.checked;
-          await saveIssueState(currentIssueKey, currentState); 
+          markDirty();
         });
 
         const span = document.createElement("span");
         span.contentEditable = true;
         span.className = "text-sm outline-none";
         span.textContent = dodItem.text || "";
-        span.addEventListener("blur", async () => {
-          currentState.dod[idx].text = span.textContent;
-          await saveIssueState(currentIssueKey, currentState); 
+        span.addEventListener("blur", () => {
+          const value = (span.textContent || "").trim();
+          if ((currentState.dod[idx].text || "").trim() !== value) {
+            currentState.dod[idx].text = value;
+            markDirty();
+          }
         });
 
         const delBtn = document.createElement("button");
         delBtn.textContent = "✕";
         delBtn.className = "ac-delete text-xs text-slate-400 hover:text-red-300 opacity-0 transition-opacity";
-        delBtn.addEventListener("click", async () => {
+        delBtn.addEventListener("click", () => {
           currentState.dod.splice(idx, 1);
-          await saveIssueState(currentIssueKey, currentState); 
           renderDoD(currentState.dod);
+          markDirty();
         });
 
         row.appendChild(checkbox);
@@ -496,28 +544,47 @@
       });
     }
 
+
     // ---- DoD 추가 ----
-    let isAddingDoD = false;
-    addDodBtn.addEventListener("click", async () => {
-      if (!currentIssueKey || isAddingDoD) return;
+    addDodBtn.addEventListener("click", () => {
+      if (!currentIssueKey) return;
       const text = (dodInputEl?.value || "").trim();
       if (!text) return;
-      isAddingDoD = true;
       currentState.dod = currentState.dod || [];
       currentState.dod.push({ text, checked: false });
-      await saveIssueState(currentIssueKey, currentState);
       if (dodInputEl) dodInputEl.value = "";
-      // 서버에서 최신 상태 다시 불러오기
-      currentState = await fetchIssueState(currentIssueKey);
       renderDoD(currentState.dod);
-      isAddingDoD = false;
+      markDirty();
     });
     if (dodInputEl) {
-      dodInputEl.addEventListener("keydown", (e) => { 
-        if (e.key === "Enter" && !e.shiftKey) { 
-          e.preventDefault(); 
-          addDodBtn.click(); 
-        } 
+      dodInputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          addDodBtn.click();
+        }
+      });
+    }
+
+    if (jiraImportBtn) {
+      jiraImportBtn.addEventListener("click", async () => {
+        if (!currentIssueKey || !isDirty || isSaving) return;
+        isSaving = true;
+        updateSaveButtonState();
+        try {
+          await saveIssueState(currentIssueKey, currentState);
+          currentState = await fetchIssueState(currentIssueKey);
+          renderAC(currentState.ac);
+          renderDoD(currentState.dod);
+          const issue = allIssues.find(function(it){ return it.key === currentIssueKey; }) || null;
+          if (issue) renderIssueDetails(issue);
+          resetDirty();
+          debugEl.textContent = "Jira Import 완료";
+        } catch (err) {
+          debugEl.textContent = err.message;
+        } finally {
+          isSaving = false;
+          updateSaveButtonState();
+        }
       });
     }
 
