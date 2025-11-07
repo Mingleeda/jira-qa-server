@@ -43,36 +43,41 @@ function buildChecklistBlock(label, items) {
       content: [
         {
           type: 'text',
-          text: `${label}`,
+          text: label,
         },
       ],
     },
   ];
-  if (!Array.isArray(items) || items.length === 0) {
-    blocks.push({
-      type: 'paragraph',
-      content: [
-        {
-          type: 'text',
-          text: '- [ ] (없음)',
-        },
-      ],
-    });
-  } else {
-    items.forEach((item, idx) => {
-      const checked = item?.checked ? 'x' : ' ';
-      const text = (item?.text ?? '').toString().trim() || `(빈 항목 ${idx + 1})`;
-      blocks.push({
-        type: 'paragraph',
+
+  const taskItems = (Array.isArray(items) && items.length > 0)
+    ? items.map((item, idx) => ({
+        type: 'taskItem',
+        attrs: { state: item?.checked ? 'DONE' : 'TODO' },
         content: [
           {
             type: 'text',
-            text: `- [${checked}] ${text}`,
+            text: (item?.text ?? '').toString().trim() || `(빈 항목 ${idx + 1})`,
           },
         ],
-      });
-    });
-  }
+      }))
+    : [
+        {
+          type: 'taskItem',
+          attrs: { state: 'TODO' },
+          content: [
+            {
+              type: 'text',
+              text: '(없음)',
+            },
+          ],
+        },
+      ];
+
+  blocks.push({
+    type: 'taskList',
+    content: taskItems,
+  });
+
   return blocks;
 }
 
