@@ -203,15 +203,6 @@
       }
     }
 
-        allIssues = Array.isArray(data) ? data : (data.issues || []);
-        buildLabelControls(allIssues);
-        renderIssues(allIssues);
-      } catch (e) {
-        issueListEl.innerHTML = "<li class='text-red-400 text-xs'>불러오기 실패</li>";
-        debugEl.textContent = e.message;
-      }
-    }
-
     function safeLower(s) { return (s || "").toString().toLowerCase(); }
 
     function statusClass(name){
