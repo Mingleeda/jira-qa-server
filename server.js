@@ -6,6 +6,7 @@ import pkg from "pg";
 const { Pool } = pkg;
 import path from "path";
 import { fileURLToPath } from "url";
+import { randomUUID } from "crypto";
 
 dotenv.config();
 
@@ -52,7 +53,7 @@ function buildChecklistBlock(label, items) {
   const taskItems = (Array.isArray(items) && items.length > 0)
     ? items.map((item, idx) => ({
         type: 'taskItem',
-        attrs: { state: item?.checked ? 'DONE' : 'TODO' },
+        attrs: { state: item?.checked ? 'DONE' : 'TODO', localId: randomUUID() },
         content: [
           {
             type: 'text',
@@ -63,7 +64,7 @@ function buildChecklistBlock(label, items) {
     : [
         {
           type: 'taskItem',
-          attrs: { state: 'TODO' },
+          attrs: { state: 'TODO', localId: randomUUID() },
           content: [
             {
               type: 'text',
@@ -75,6 +76,7 @@ function buildChecklistBlock(label, items) {
 
   blocks.push({
     type: 'taskList',
+    attrs: { localId: randomUUID() },
     content: taskItems,
   });
 
