@@ -227,7 +227,7 @@ app.get("/api/jira-sprint-issues", async (req, res) => {
     if (parentKeys.length > 0) {
       const jql = `parent in (${parentKeys.map(k => '"' + k + '"').join(',')})`;
       const searchData = await fetchJson(
-        `${JIRA_URL}/rest/api/3/search`,
+        `${JIRA_URL}/rest/api/3/search/jql`,
         {
           method: 'POST',
           headers: { ...jiraHeaders, 'Content-Type': 'application/json', 'Accept': 'application/json' },
