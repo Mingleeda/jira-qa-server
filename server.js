@@ -31,6 +31,89 @@ const jiraHeaders = {
   Accept: "application/json",
 };
 
+const jiraJsonHeaders = {
+  ...jiraHeaders,
+  "Content-Type": "application/json"
+};
+
+function buildChecklistBlock(label, items) {
+  const blocks = [
+    {
+      type: 'heading',
+      attrs: { level: 3 },
+      content: [
+        {
+          type: 'text',
+          text: label,
+        },
+      ],
+    },
+  ];
+  if (!Array.isArray(items) || items.length === 0) {
+    blocks.push({
+      type: 'paragraph',
+      content: [
+        {
+          type: 'text',
+          text: '(없음)',
+        },
+      ],
+    });
+  } else {
+    blocks.push({
+      type: 'taskList',
+      content: items.map((item, idx) => ({
+        type: 'taskItem',
+        attrs: { state: item?.checked ? 'DONE' : 'TODO' },
+        content: [
+          {
+            type: 'text',
+            text:
+              (item?.text ?? '').toString().trim() || `(빈 항목 ${idx + 1})`,
+          },
+        ],
+      })),
+    });
+  }
+  return blocks;
+}
+
+async function postJiraComment(issueKey, acItems, dodItems) {
+  if (!JIRA_URL || !JIRA_EMAIL || !JIRA_TOKEN) {
+    console.warn('⚠️ Jira 환경변수가 설정되지 않아 댓글을 작성하지 않습니다.');
+    return;
+  }
+  try {
+    const body = {
+      body: {
+        type: 'doc',
+        version: 1,
+        content: [
+          ...buildChecklistBlock('AC', acItems),
+          ...buildChecklistBlock('DoD', dodItems),
+        ],
+      },
+    };
+    const res = await fetch(
+      `${JIRA_URL}/rest/api/3/issue/${issueKey}/comment`,
+      {
+        method: 'POST',
+        headers: jiraJsonHeaders,
+        body: JSON.stringify(body),
+      }
+    );
+    if (!res.ok) {
+      const text = await res.text();
+      console.error('❌ Jira 댓글 작성 실패:', res.status, text);
+    } else {
+      console.log(`✅ Jira 댓글 작성 완료: ${issueKey}`);
+    }
+  } catch (err) {
+    console.error('❌ Jira 댓글 작성 중 오류:', err.message);
+  }
+}
+
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 
     `postgresql://${process.env.PG_USER}:${process.env.PG_PASSWORD}@${process.env.PG_HOST}:${process.env.PG_PORT || 5432}/${process.env.PG_DATABASE}`,
@@ -215,6 +298,9 @@ app.post("/api/qa-state/:issueKey", async (req, res) => {
       `,
       [issueKey, acJson, dodJson]
     );
+
+    postJiraComment(issueKey, ac || [], dod || []);
+
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
