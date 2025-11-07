@@ -39,12 +39,11 @@ const jiraJsonHeaders = {
 function buildChecklistBlock(label, items) {
   const blocks = [
     {
-      type: 'heading',
-      attrs: { level: 3 },
+      type: 'paragraph',
       content: [
         {
           type: 'text',
-          text: label,
+          text: `${label}`,
         },
       ],
     },
@@ -55,24 +54,23 @@ function buildChecklistBlock(label, items) {
       content: [
         {
           type: 'text',
-          text: '(없음)',
+          text: '- [ ] (없음)',
         },
       ],
     });
   } else {
-    blocks.push({
-      type: 'taskList',
-      content: items.map((item, idx) => ({
-        type: 'taskItem',
-        attrs: { state: item?.checked ? 'DONE' : 'TODO' },
+    items.forEach((item, idx) => {
+      const checked = item?.checked ? 'x' : ' ';
+      const text = (item?.text ?? '').toString().trim() || `(빈 항목 ${idx + 1})`;
+      blocks.push({
+        type: 'paragraph',
         content: [
           {
             type: 'text',
-            text:
-              (item?.text ?? '').toString().trim() || `(빈 항목 ${idx + 1})`,
+            text: `- [${checked}] ${text}`,
           },
         ],
-      })),
+      });
     });
   }
   return blocks;
