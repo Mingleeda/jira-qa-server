@@ -114,6 +114,22 @@ async function postJiraComment(issueKey, acItems, dodItems) {
 }
 
 
+
+async function fetchJson(url, options = {}, context = 'request') {
+  const res = await fetch(url, options);
+  const text = await res.text();
+  if (!res.ok) {
+    console.error(`❌ ${context} 실패:`, res.status, text.slice(0, 200));
+    throw new Error(`${context} 실패: ${res.status} ${text.slice(0, 200)}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    console.error(`❌ ${context} JSON 파싱 오류:`, err.message, text.slice(0, 200));
+    throw new Error(`${context} JSON 파싱 오류: ${err.message}`);
+  }
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 
     `postgresql://${process.env.PG_USER}:${process.env.PG_PASSWORD}@${process.env.PG_HOST}:${process.env.PG_PORT || 5432}/${process.env.PG_DATABASE}`,
@@ -159,16 +175,11 @@ app.get("/api/jira-sprint-issues", async (req, res) => {
     let { sprintId } = req.query;
 
     if (!sprintId) {
-      const sprintRes = await fetch(
-        `${JIRA_URL}/rest/agile/1.0/board/${BOARD_ID}/sprint?state=active`,
-        { headers: jiraHeaders }
-      );
-      if (!sprintRes.ok) {
-        const errorText = await sprintRes.text();
-        console.error("Jira Sprint API Error:", sprintRes.status, errorText);
-        throw new Error(`Jira API error: ${sprintRes.status} - ${errorText}`);
-      }
-      const sprintData = await sprintRes.json();
+      const sprintData = await fetchJson(
+      `${JIRA_URL}/rest/agile/1.0/board/${BOARD_ID}/sprint?state=active`,
+      { headers: jiraHeaders },
+      'Active sprint 조회'
+    );
       const activeSprint = sprintData.values?.[0];
       if (!activeSprint) {
         return res.json({ issues: [] });
@@ -176,27 +187,17 @@ app.get("/api/jira-sprint-issues", async (req, res) => {
       sprintId = activeSprint.id;
     }
 
-    const sprintDetailRes = await fetch(
+    const sprintDetail = await fetchJson(
       `${JIRA_URL}/rest/agile/1.0/sprint/${sprintId}`,
-      { headers: jiraHeaders }
+      { headers: jiraHeaders },
+      'Sprint 상세 조회'
     );
-    if (!sprintDetailRes.ok) {
-      const errorText = await sprintDetailRes.text();
-      console.error("Jira Sprint Detail API Error:", sprintDetailRes.status, errorText);
-      throw new Error(`Jira API error: ${sprintDetailRes.status}`);
-    }
-    const sprintDetail = await sprintDetailRes.json();
 
-    const issuesRes = await fetch(
+    const issuesData = await fetchJson(
       `${JIRA_URL}/rest/agile/1.0/sprint/${sprintId}/issue?maxResults=200&fields=summary,assignee,reporter,duedate,labels,status,subtasks`,
-      { headers: jiraHeaders }
+      { headers: jiraHeaders },
+      'Sprint 이슈 조회'
     );
-    if (!issuesRes.ok) {
-      const errorText = await issuesRes.text();
-      console.error("Jira Issues API Error:", issuesRes.status, errorText);
-      throw new Error(`Jira API error: ${issuesRes.status} - ${errorText}`);
-    }
-    const issuesData = await issuesRes.json();
 
     const baseIssues = (issuesData.issues || []).map((issue) => ({
       key: issue.key,
@@ -224,15 +225,15 @@ app.get("/api/jira-sprint-issues", async (req, res) => {
     let subtasksByParent = {};
     if (parentKeys.length > 0) {
       const jql = `parent in (${parentKeys.map(k => '"' + k + '"').join(',')})`;
-      const searchRes = await fetch(
+      const searchData = await fetchJson(
         `${JIRA_URL}/rest/api/2/search`,
         {
           method: 'POST',
           headers: { ...jiraHeaders, 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({ jql, fields: [ 'summary', 'status', 'parent' ], maxResults: 1000 })
-        }
+        },
+        'Sub-task 조회'
       );
-      const searchData = await searchRes.json();
       const issues = Array.isArray(searchData.issues) ? searchData.issues : [];
       for (const st of issues) {
         const parentKey = st.fields?.parent?.key;
@@ -257,7 +258,7 @@ app.get("/api/jira-sprint-issues", async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to fetch Jira issues" });
+    res.status(500).json({ error: "Failed to fetch Jira issues", details: err.message });
   }
 });
 
